@@ -678,7 +678,7 @@ static int shd_conn_set_property(struct drm_connector *connector,
 		c_conn->bl_scale_dirty = false;
 		c_conn->unset_bl_level = 0;
 		break;
-	case CONNECTOR_PROP_AD_BL_SCALE:
+	case CONNECTOR_PROP_SV_BL_SCALE:
 		c_conn->bl_scale_dirty = false;
 		c_conn->unset_bl_level = 0;
 		break;
