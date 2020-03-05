@@ -50,6 +50,8 @@
 #define ARM64_SPECTRE_BHB			30
 #define ARM64_WORKAROUND_1742098		31
 
-#define ARM64_NCAPS				32
+#define ARM64_HAS_AMU_EXTN			43
+/* kabi: reserve 39 - 62 for future cpu capabilities */
+#define ARM64_NCAPS				62
 
 #endif /* __ASM_CPUCAPS_H */
