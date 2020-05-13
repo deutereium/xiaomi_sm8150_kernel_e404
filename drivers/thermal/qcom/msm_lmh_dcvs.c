@@ -26,6 +26,7 @@
 #include <linux/timer.h>
 #include <linux/pm_opp.h>
 #include <linux/cpufreq.h>
+#include <linux/fie.h>
 #include <linux/cpu_cooling.h>
 #include <linux/atomic.h>
 #include <linux/regulator/consumer.h>
@@ -186,6 +187,13 @@ static unsigned long limits_mitigation_notify(struct limits_dcvs_hw *hw)
 	if (max_cpu_ct == cpumask_weight(&hw->core_map))
 		max_limit = max_cpu_limit;
 	sched_update_cpu_freq_min_max(&hw->core_map, 0, max_limit);
+	/*
+	 * Feed the LMh cap into FIE so it can aggregate it with its own
+	 * hardware throttle detection. One call per CPU: an LMh hw can span
+	 * more than one cpufreq domain (e.g. gold + prime).
+	 */
+	for_each_cpu(cpu, &hw->core_map)
+		fie_cpufreq_pressure(cpu, max_limit);
 	pr_debug("CPU:%d max limit:%lu\n", cpumask_first(&hw->core_map),
 			max_limit);
 

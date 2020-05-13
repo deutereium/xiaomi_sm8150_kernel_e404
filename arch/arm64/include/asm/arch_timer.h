@@ -148,11 +148,8 @@ static inline void arch_timer_set_cntkctl(u32 cntkctl)
 
 static inline u64 arch_counter_get_cntpct(void)
 {
-	/*
-	 * AArch64 kernel and user space mandate the use of CNTVCT.
-	 */
-	BUG();
-	return 0;
+	isb();
+	return read_sysreg(cntpct_el0);
 }
 
 static inline u64 arch_counter_get_cntvct(void)

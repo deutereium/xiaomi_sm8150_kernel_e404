@@ -707,6 +707,7 @@ osm_cpufreq_target_index(struct cpufreq_policy *policy, unsigned int index)
 	struct clk_osm *c = policy->driver_data;
 
 	osm_set_index(c, index, c->core_num);
+	fie_rate_set(policy->cpu, policy->freq_table[index].frequency);
 	return 0;
 }
 
