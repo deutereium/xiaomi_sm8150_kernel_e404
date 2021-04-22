@@ -694,10 +694,10 @@ struct rt_rq {
 	} highest_prio;
 #endif
 #ifdef CONFIG_SMP
-	unsigned long rt_nr_migratory;
-	unsigned long rt_nr_total;
-	int overloaded;
-	struct plist_head pushable_tasks;
+	unsigned int		rt_nr_migratory;
+	unsigned int		rt_nr_total;
+	int			overloaded;
+	struct plist_head	pushable_tasks;
 
 #endif /* CONFIG_SMP */
 	int rt_queued;
@@ -709,7 +709,7 @@ struct rt_rq {
 	raw_spinlock_t rt_runtime_lock;
 
 #ifdef CONFIG_RT_GROUP_SCHED
-	unsigned long rt_nr_boosted;
+	unsigned int		rt_nr_boosted;
 
 	struct rq *rq;
 	struct task_group *tg;
@@ -732,7 +732,7 @@ struct dl_rq {
 	/* runqueue is an rbtree, ordered by deadline */
 	struct rb_root_cached root;
 
-	unsigned long dl_nr_running;
+	unsigned int		dl_nr_running;
 
 #ifdef CONFIG_SMP
 	/*
@@ -746,8 +746,8 @@ struct dl_rq {
 		u64 next;
 	} earliest_dl;
 
-	unsigned long dl_nr_migratory;
-	int overloaded;
+	unsigned int		dl_nr_migratory;
+	int			overloaded;
 
 	/*
 	 * Tasks on this rq that can be pushed away. They are kept in
@@ -1037,7 +1037,7 @@ struct rq {
 	 * one CPU and if it got migrated afterwards it may decrease
 	 * it on another CPU. Always updated under the runqueue lock:
 	 */
-	unsigned long nr_uninterruptible;
+	unsigned int		nr_uninterruptible;
 
 	struct task_struct *curr, *idle, *stop;
 	unsigned long next_balance;
