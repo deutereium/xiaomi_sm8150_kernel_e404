@@ -1037,7 +1037,7 @@ struct rq {
 	 * one CPU and if it got migrated afterwards it may decrease
 	 * it on another CPU. Always updated under the runqueue lock:
 	 */
-	unsigned int		nr_uninterruptible;
+	unsigned long		nr_uninterruptible;
 
 	struct task_struct *curr, *idle, *stop;
 	unsigned long next_balance;
