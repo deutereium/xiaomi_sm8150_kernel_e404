@@ -1,337 +1,252 @@
 #!/usr/bin/env bash
-# E404 Kernel Compile Script !
-# Put a fucking credit if you use something from here !
+# E404 Kernel Compile Script
 
-# Set kernel source directory and base directory to place tools
+set -o pipefail
+
+export ARCH=arm64
+export SUBARCH=arm64
+export TZ=Asia/Jakarta
+
+# Directories
 KERNEL_DIR="$PWD"
-cd ..
-BASE_DIR="$PWD"
-cd "$KERNEL_DIR"
+BASE_DIR="$PWD/.."
+OUT_DIR="$KERNEL_DIR/out"
+LOG_FILE="$OUT_DIR/kernel_compile.log"
+CHANGELOG_FILE="$BASE_DIR/kernel_changelog.txt"
 
-set -eo pipefail
-trap 'errorbuild' INT TERM ERR
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+export CCACHE_EXEC=/usr/bin/ccache
+export USE_CCACHE=1
+if [[ "$BRANCH" == *bpf* ]]; then
+    export CCACHE_DIR="$BASE_DIR/ccache/.kernel-bpf"
+else
+    export CCACHE_DIR="$BASE_DIR/ccache/.kernel"
+fi
+
+# Kernel parts
+K_IMG="$KERNEL_DIR/out/arch/arm64/boot/Image"
+K_DTBO="$KERNEL_DIR/out/arch/arm64/boot/dtbo.img"
+K_DTB="$KERNEL_DIR/out/arch/arm64/boot/dtb.img"
 
 AK3_DIR="$BASE_DIR/AnyKernel3"
-[[ ! -d "$AK3_DIR" ]] && echo "!! Please Provide AnyKernel3 !!" && exit 1
+[[ ! -d "$AK3_DIR" ]] && echo "--- ! Failed to find AnyKernel3 at $AK3_DIR ! ---" && exit 1
 
-# Parse command line arguments
-TYPE="BPF"
-TC="Unknown-Clang"
-TARGET=""
-DEFCONFIG=""
+# Telegram API setup
+TELEGRAM_CONFIG="$BASE_DIR/telegram_api"
+if [[ ! -f "$TELEGRAM_CONFIG" ]]; then
+    echo "--- ! Failed to find Telegram API config at $TELEGRAM_CONFIG ! ---"
+    exit 1
+else
+    source "$TELEGRAM_CONFIG"
+    if [[ -z "$BOT_TOKEN" || -z "$GROUP_ID" || -z "$CHANNEL_ID" || -z "$PRIVATE_ID" ]]; then
+        echo "--- ! Failed to find Telegram required variables (BOT_TOKEN, GROUP_ID, CHANNEL_ID, PRIVATE_ID) ! ---"
+        exit 1
+    fi
+fi
 
-case "$*" in
-    *st*)
-        git checkout main
-        TYPE="STABLE" ;;
-    *dev*) TYPE="DEV" ;;
-    *sus*) 
-        git checkout main-susfs
-        TYPE="SUSFS" 
-        ;;
+MSGTARGET="private"
+
+for arg in "$@"; do
+    case "$arg" in
+        weekly) MSGTARGET="channel" ;;
+        group) MSGTARGET="group" ;;
+    esac
+done
+
+case "$MSGTARGET" in
+    channel) ID="$CHANNEL_ID" ;;
+    group)   ID="$GROUP_ID" ;;
+    *)       ID="$PRIVATE_ID" ;;
 esac
 
-case "$*" in
+send_msg() {
+    curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+        -d chat_id="$ID" \
+        -d text="$1" \
+        -d parse_mode=html >/dev/null
+}
 
-    *gf*)
-        export PATH="$BASE_DIR/toolchains/gf-clang/bin:$PATH"
-        TC="vayu-Gf-Clang"
-        ;;
-    *aosp*)
-        export PATH="$BASE_DIR/toolchains/aosp-clang/bin:$PATH"
-        TC="AOSP-Clang"
-        ;;
-    *neutron*)
-        export PATH="$BASE_DIR/toolchains/neutron-clang/bin:$PATH"
-        TC="Neutron-Clang"
-        ;;
-    *llvm*)
-        export PATH="$BASE_DIR/toolchains/llvm-clang/bin:$PATH"
-        TC="LLVM-Clang"
-        ;;
-    *lilium*)
-        export PATH="$BASE_DIR/toolchains/lilium-clang/bin:$PATH"
-        TC="Lilium-Clang"
-        ;;
-    *eva*)
-        GCC64_DIR="$BASE_DIR/toolchains/gcc/gcc-arm64/bin/"
-        GCC32_DIR="$BASE_DIR/toolchains/gcc/gcc-arm/bin/"
-        export PATH="$GCC64_DIR:$GCC32_DIR:/usr/bin:$PATH"
-        TC="EVA"
-        ;;
+send_file() {
+    curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendDocument" \
+        -F chat_id="$ID" \
+        -F document=@"$1" >/dev/null
+}
+
+send_changelog() {
+    local FILE="$1"
+
+    if [[ ! -f "$FILE" ]]; then
+        echo "--- ! Failed to find changelog at $FILE ! ---"
+        return
+    fi
+
+    # If empty, use default
+    if [[ ! -s "$FILE" ]]; then
+        echo "- Another weekly build" > "$FILE"
+    fi
+
+    # Proper newline → Telegram format
+    local CHANGELOG
+    CHANGELOG=$(sed 's/$/%0A/' "$FILE" | tr -d '\n')
+
+    send_msg "<b>Changelog(s):</b>%0A<code>$CHANGELOG</code>"
+}
+
+# Arrays to support multi-device target
+TARGETS=()
+DEFCONFIGS=()
+DEVICES=()
+ZIPS=()
+
+# Device map
+if [[ "$*" == *gcc* ]]; then
+    declare -A DEVICE_MAP=(
+        ["vayu"]="VAYU:vayu_gcc_defconfig"
+        ["vaybpf"]="VAYBPF:vayu-bpf_gcc_defconfig"
+    )
+else
+    declare -A DEVICE_MAP=(
+        ["vayu"]="VAYU:vayu_defconfig"
+        ["vaybpf"]="VAYBPF:vayu-bpf_defconfig"
+    )
+fi
+
+declare -A DEVICE_NAME_MAP=(
+    ["vayu"]="POCO_X3_PRO"
+    ["vaybpf"]="POCO_X3_PRO-BPF"
+)
+
+# Toolchain selection
+case "$*" in
+    *aosp*) export PATH="$BASE_DIR/toolchains/aosp-clang/bin:$PATH"; TC="AOSP-Clang" ;;
+    *neutron*) export PATH="$BASE_DIR/toolchains/neutron-clang/bin:$PATH"; TC="Neutron-Clang" ;;
+    *llvm*) export PATH="$BASE_DIR/toolchains/llvm-clang/bin:$PATH"; TC="LLVM-Clang" ;;
+    *lilium*) export PATH="$BASE_DIR/toolchains/lilium-clang/bin:$PATH"; TC="Lilium-Clang" ;;
     *gcc*)
         GCC64_DIR="$BASE_DIR/toolchains/gcc/gcc-14.2.0-nolibc/aarch64-linux/bin"
         GCC32_DIR="$BASE_DIR/toolchains/gcc/gcc-14.2.0-nolibc/arm-linux-gnueabi/bin"
         export PATH="$GCC64_DIR:$GCC32_DIR:$PATH"
         TC="GCC"
-        ;;
+    ;;
     *)
         if [[ -d "$BASE_DIR/toolchains/llvm-clang" ]]; then
             export PATH="$BASE_DIR/toolchains/llvm-clang/bin:$PATH"
             TC="LLVM-Clang"
-        elif [[ -d "$BASE_DIR/toolchains/lilium-clang" ]]; then
-            export PATH="$BASE_DIR/toolchains/lilium-clang/bin:$PATH"
-            TC="Lilium-Clang"
-        elif [[ -d "$BASE_DIR/toolchains/gf-clang" ]]; then
-            export PATH="$BASE_DIR/toolchains/gf-clang/bin:$PATH"
-            TC="vayu-Gf-Clang"
-        elif [[ -d "$BASE_DIR/toolchains/aosp-clang" ]]; then
-            export PATH="$BASE_DIR/toolchains/aosp-clang/bin:$PATH"
-            TC="AOSP-Clang"
-        elif [[ -d "$BASE_DIR/toolchains/neutron-clang" ]]; then
-            export PATH="$BASE_DIR/toolchains/neutron-clang/bin:$PATH"
-            TC="Neutron-Clang"
         else
-            echo "-- !! Please provide a toolchain !! --"
-            exit 1
+            echo "--- ! Failed to find toolchain at $BASE_DIR/toolchains/ ! ---" && exit 1
         fi
-        ;;
+    ;;
 esac
 
-# Device selection using arrays
-    declare -A DEVICE_MAP=(
-        ["vayu"]="VAYU:vayu_defconfig"
-        ["debug"]="DEBUG:vayu-debug_defconfig"
-        ["vaybpf"]="VAYBPF:vayu-bpf_defconfig"
-    )
-
-for device in "${!DEVICE_MAP[@]}"; do
-    if [[ "$*" == *"$device"* ]]; then
-        IFS=':' read -r TARGET DEFCONFIG <<< "${DEVICE_MAP[$device]}"
-        sed -i "/devicename=/c\devicename=${device}" "$AK3_DIR/anykernel.sh"
-        break
-    fi
+for arg in "$@"; do
+    for device in "${!DEVICE_MAP[@]}"; do
+        if [[ "$arg" == "$device" ]]; then
+            IFS=':' read -r TARGET DEFCONFIG <<< "${DEVICE_MAP[$device]}"
+            TARGETS+=("$TARGET")
+            DEFCONFIGS+=("$DEFCONFIG")
+            DEVICES+=("$device")
+        fi
+    done
 done
 
-[[ ! "$TARGET" ]] && echo "-- !! Please set build device target !! --" && exit 1
-
-# Set kernel image paths
-K_IMG="$KERNEL_DIR/out/arch/arm64/boot/Image"
-K_DTBO="$KERNEL_DIR/out/arch/arm64/boot/dtbo.img"
-K_DTB="$KERNEL_DIR/out/arch/arm64/boot/dtb.img"
-
-# Telegram configuration - Load from external file
-TELEGRAM_CONFIG="$BASE_DIR/kernel_build"
-if [[ -f "$TELEGRAM_CONFIG" ]]; then
-    source "$TELEGRAM_CONFIG"
-    export TOKEN="$TELEGRAM_TOKEN"
-    export CHATID="$TELEGRAM_CHATID"
-else
-    echo "-- Warning: Telegram config file not found at $TELEGRAM_CONFIG --"
-    echo "-- Telegram notifications will be disabled --"
-    export TOKEN=""
-    export CHATID=""
-fi
-
-# Build environment
-export ARCH="arm64"
-export SUBARCH="arm64"
-export TZ="Asia/Jakarta"
-
-# Clean previous builds
-rm -rf ../*RE404*.zip
-
-# Function definitions
-build_msg() {
-    local BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    local COMMIT=$(git log -1 --pretty=format:'%s')
-    local MSG=$(cat <<EOF
-<b>Build Triggered !</b>
-<code>Device : $TARGET</code>
-<code>Branch : $BRANCH</code>
-<code>ToolCh : $TC</code>
-<b>Commit :</b>
-<code>$COMMIT</code>
-EOF
-)
-    send_msg "$MSG"
-}
-
-success_msg() {
-    local MSG=$(cat <<EOF
-<b>Build Success !</b>
-<code>Date : $(date +"%d %b %Y, %H:%M:%S")</code>
-<code>Time : $(($TIME_END / 60))m $(($TIME_END % 60))s</code>
-EOF
-)
-    send_msg "$MSG"
-}
-
-clearbuild() {
-    if [[ "$1" == "all" ]]; then
-        echo "-- Cleaning Out --"
-        rm -rf out/*
+compilebuild() {
+    if [[ $TC == *Clang* ]]; then
+        make -j$(nproc) O=out \
+            CC="ccache clang" \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            LLVM=1 LLVM_IAS=1 LD="ld.lld" AR="llvm-ar" NM="llvm-nm" OBJCOPY="llvm-objcopy"  OBJDUMP="llvm-objdump" STRIP="llvm-strip" \
+            2>&1 | tee -a "$LOG_FILE"
     else
-        rm -rf "$KERNEL_DIR/out/arch/arm64/boot"
+        make -j$(nproc) O=out \
+            CC="ccache aarch64-linux-gcc" \
+            CROSS_COMPILE=aarch64-linux- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            2>&1 | tee -a "$LOG_FILE"
     fi
 }
 
 zipbuild() {
-    echo "-- Zipping Kernel --"
-    cd "$AK3_DIR" || exit 1
-    local BPF_SUFFIX=$([[ "$TARGET" == "VAYBPF" ]] && echo "-BPF" || echo "")
-    ZIP_NAME="RE404-POCO_X3_PRO-$(date "+%y%m%d-%H%M")${BPF_SUFFIX}.zip"
-    zip -r9 "$BASE_DIR/$ZIP_NAME" META-INF/ tools/ "${TARGET}"*-Image "${TARGET}"*-dtbo.img "${TARGET}"*-dtb anykernel.sh
-    cd "$KERNEL_DIR" || exit 1
-}
+    local TARGET="$1"
+    local DEVICE="$2"
 
+    cd "$AK3_DIR"
 
-setupbuild() {
-    if [[ $TC == *Clang* ]]; then
-        BUILD_FLAGS=(
-            CC="ccache clang"
-            CROSS_COMPILE="aarch64-linux-gnu-"
-            CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
-            LLVM=1
-            LLVM_IAS=1
-            LD="ld.lld"
-            AR="llvm-ar"
-            NM="llvm-nm"
-            OBJCOPY="llvm-objcopy"
-            OBJDUMP="llvm-objdump"
-            STRIP="llvm-strip"
-        )
-        
-        # Export for defconfig (without ccache)
-        export CC="clang"
-        export CROSS_COMPILE="aarch64-linux-gnu-"
-        export CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
-        export LLVM=1
-        export LLVM_IAS=1
-        
-    elif [[ $TC == "EVA" ]]; then
-        BUILD_FLAGS=(
-            CC="ccache aarch64-elf-gcc"
-            CROSS_COMPILE="aarch64-elf-"
-            CROSS_COMPILE_ARM32="arm-eabi-"
-            LD="aarch64-elf-ld.lld"
-            AR="llvm-ar"
-            NM="llvm-nm"
-            OBJCOPY="llvm-objcopy"
-            OBJDUMP="llvm-objdump"
-            OBJSIZE="llvm-size"
-            STRIP="llvm-strip"
-        )
-
-        # Export for defconfig (without ccache)
-        export CC="aarch64-elf-gcc"
-        export CROSS_COMPILE="aarch64-elf-"
-        export CROSS_COMPILE_COMPAT="arm-eabi-"
-    else
-        BUILD_FLAGS=(
-            CC="ccache aarch64-linux-gcc"
-            CROSS_COMPILE="aarch64-linux-"
-            CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
-        )
-
-        # Export for defconfig (without ccache)
-        export CC="aarch64-linux-gcc"
-        export CROSS_COMPILE="aarch64-linux-"
-        export CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
-    fi
-    #export KBUILD_BUILD_TIMESTAMP="$(date -d '1 year ago' '+%a %b %d %H:%M:%S %Z %Y')"
-}
-
-errorbuild() {
-    echo "-- !! Kernel Build Error !! --"
-    send_file "$BASE_DIR/compile.log"
-    send_msg "<b>! Kernel Build Error !</b>"
-    clearbuild
-    exit 1
-}
-
-compilebuild() {    
-    mkdir -p $KERNEL_DIR/out
-
-    local make_flags=(-j"$(nproc)" O=out "${BUILD_FLAGS[@]}")
+    DEVICE_NAME="${DEVICE_NAME_MAP[$DEVICE]:-$DEVICE}"
     
-    if [[ $TC == *Clang* ]]; then
-        echo "-- Compiling with Clang --"
-        make "${make_flags[@]}" || errorbuild
-    else
-        echo "-- Compiling with GCC --"
-        make "${make_flags[@]}" || errorbuild
-    fi
+    ZIP_NAME="RE404-${DEVICE_NAME}-$(date "+%y%m%d-%H%M").zip"
+
+
+    zip -r9 "$OUT_DIR/$ZIP_NAME" META-INF tools "${TARGET}"* anykernel.sh
+    cd "$KERNEL_DIR"
 }
 
-makebuild() {
-    # Config modifications
-    export KBUILD_BUILD_USER="vyn"
-    export KBUILD_BUILD_HOST="fedora"
-    #sed -i '/CONFIG_KALLSYMS=/c\CONFIG_KALLSYMS=n' out/.config
-    #sed -i '/CONFIG_KALLSYMS_BASE_RELATIVE=/c\CONFIG_KALLSYMS_BASE_RELATIVE=n' out/.config
-    #sed -i '/CONFIG_KSU_SUSFS=/c\CONFIG_KSU_SUSFS=n' out/.config
-    echo 0 > out/.version
-   
-    echo "-- Compiling Kernel --"
-    export CCACHE_DIR="$BASE_DIR/ccache/.ccache_$TC"
+build_device() {
+    TARGET="$1"
+    DEFCONFIG="$2"
+    DEVICE="$3"
+
+    echo "--- Building for $TARGET ---"
+
+    sed -i "/devicename=/c\devicename=${DEVICE}" "$AK3_DIR/anykernel.sh"
+
+    rm -rf out/arch/arm64/boot
+
+    make O=out "$DEFCONFIG" 2>&1 | tee -a "$LOG_FILE"
 
     compilebuild
-    # Show ccache stats after build
+
+    [[ -f "$K_IMG" && -f "$K_DTBO" && -f "$K_DTB" ]] || return 1
+    rm -f "$AK3_DIR/${TARGET}-"*
+    cp "$K_IMG" "$AK3_DIR/${TARGET}-Image"
+    cp "$K_DTBO" "$AK3_DIR/${TARGET}-dtbo.img"
+    cp "$K_DTB" "$AK3_DIR/${TARGET}-dtb"
+
+    zipbuild "$TARGET" "$DEVICE"
+    ZIPS+=("$OUT_DIR/$ZIP_NAME")
+}
+
+# Compile
+if [[ $# -gt 0 ]]; then
+    [[ ${#TARGETS[@]} -eq 0 ]] && echo "--- ! Invalid devices ! ---" && exit 1
+
+    rm -f "$LOG_FILE"
+    rm -rf "$OUT_DIR"
+    mkdir -p "$OUT_DIR"
+
+    FAIL=0
+    for i in "${!TARGETS[@]}"; do
+        if ! build_device "${TARGETS[$i]}" "${DEFCONFIGS[$i]}" "${DEVICES[$i]}"; then
+            send_msg "<b>Kernel Weekly Build $(date "+%Y-%m-%d")</b>%0A<b>Branch: </b><code>$BRANCH</code>"
+            send_file "$LOG_FILE"
+            send_msg "<b>! Kernel Build Failed !</b>"
+            echo "--- ! Failed to build ${TARGETS[$i]} kernel ! ---"
+            FAIL=1
+        fi
+    done
+
+    if [[ $FAIL -eq 0 ]]; then
+        echo "--- Uploading builds ---"
+        send_msg "<b>Kernel Weekly Build $(date "+%Y-%m-%d")</b>%0A<b>Branch: </b><code>$BRANCH</code>"
+
+        for zip in "${ZIPS[@]}"; do
+            if ! send_file "$zip"; then
+                echo "--- ! Failed to upload $zip ! ---"
+            else
+                echo "--- Uploaded $zip ---"
+            fi
+        done
+        if [[ "$*" == *changelog* ]]; then
+            send_changelog "$CHANGELOG_FILE"
+        fi
+        echo "--- All builds completed ---"
+    fi
+
     echo "======== CCache Stats =========="
     ccache -p | grep cache_dir
     ccache -s
     echo "================================"
 
-    echo "-- Copying files to AnyKernel3 --"
-    rm -f "$AK3_DIR/${TARGET}-Image"
-    rm -f "$AK3_DIR/${TARGET}-dtbo.img"
-    cp "$K_IMG" "$AK3_DIR/${TARGET}-Image"
-    cp "$K_DTBO" "$AK3_DIR/${TARGET}-dtbo.img"
-    cp "$K_DTB" "$AK3_DIR/${TARGET}-dtb"
-
-}
-
-setupbuild
-
-# Main menu
-while true; do
-    echo ""
-    echo " Menu "
-    echo " ╔════════════════════════════════════╗"
-    echo " ║ 1. Export Defconfig                ║"
-    echo " ║ 2. Start Build                     ║"
-    echo " ║ 3. Send File                       ║"
-    echo " ║ 4. Repack Last Build               ║"
-    echo " ║ f. Clean Out Directory             ║"
-    echo " ║ fc. Clean Ccache                   ║"
-    echo " ║ e. Exit                            ║"
-    echo " ╚════════════════════════════════════╝"
-    echo -n " Enter your choice : "
-    read -r menu
-    
-    case "$menu" in
-        1)
-            make O=out "$DEFCONFIG"
-            echo "-- Exported $DEFCONFIG to Out Dir --"
-            ;;
-        2)
-            TIME_START="$(date +"%s")"
-            rm -f "$BASE_DIR/compile.log"
-            clearbuild
-            makebuild 2>&1 | tee -a "$BASE_DIR/compile.log"
-            zipbuild
-            TIME_END=$(("$(date +"%s")" - "$TIME_START"))
-            ;;
-        3)
-            echo "-- Sending to Telegram --"
-            send_file "$BASE_DIR/$ZIP_NAME"
-            ;;
-        4)
-            zipbuild
-            send_file "$BASE_DIR/$ZIP_NAME"
-            ;;
-        f)
-            clearbuild "all"
-            ;;
-        fc)
-            rm -rf "$BASE_DIR/ccache"
-            ;;
-        e)
-            exit 0
-            ;;
-        *)
-            echo "-- !! Invalid option !! --"
-            ;;
-    esac
-done
+    exit 0
+fi
