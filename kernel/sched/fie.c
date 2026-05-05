@@ -14,7 +14,6 @@
 #include <asm/arch_timer.h>
 #include <asm/cputype.h>
 #include <asm/perf_event.h>
-#include <trace/events/power.h>
 #include "sched.h"
 
 /* Fallback for older 4.19 headers */
@@ -651,10 +650,14 @@ static void fie_cpu_idle(int cpu, bool idle)
 	}
 }
 
-/* Use mainline Linux cpuidle tracepoint for 4.19 */
-static void fie_idle_probe(void *data, unsigned int state, unsigned int cpu_id)
+void fie_idle_enter(void)
 {
-	fie_cpu_idle(cpu_id, state != PWR_EVENT_EXIT);
+	fie_cpu_idle(raw_smp_processor_id(), true);
+}
+
+void fie_idle_exit(void)
+{
+	fie_cpu_idle(raw_smp_processor_id(), false);
 }
 
 static int fie_cpuhp_up(unsigned int cpu)
@@ -740,9 +743,6 @@ static int __init fie_init(void)
 	BUG_ON(cpuhp_state <= 0);
 
 	calc_cntpct_arith();
-
-	/* Register standard mainline CPU idle tracepoint */
-	BUG_ON(register_trace_cpu_idle(fie_idle_probe, NULL));
 
 	/* Begin updating CPU scheduler statistics from update_rq_clock() */
 	static_branch_enable(&fie_ready);
