@@ -31,6 +31,7 @@
 #include <linux/uaccess.h>
 #include <linux/sched.h>
 #include <linux/cpufreq.h>
+#include <linux/fie.h>
 #include <linux/slab.h>
 #include <dt-bindings/clock/qcom,cpucc-sm8150.h>
 
@@ -1000,6 +1001,20 @@ static int osm_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	}
 
 	cpumask_copy(policy->cpus, &c->related_cpus);
+
+	{
+		unsigned int max_freq = 0;
+		struct cpufreq_frequency_table *pos;
+
+		/* Register this frequency domain with FIE now that the table is
+		 * populated. cpuinfo.max_freq isn't set until cpu_init returns, so
+		 * scan the table instead.
+		 */
+		cpufreq_for_each_valid_entry(pos, policy->freq_table)
+			if (pos->frequency > max_freq)
+				max_freq = pos->frequency;
+		fie_init_cpu_domain(policy->cpus, max_freq);
+	}
 
 	osm_register_em(policy);
 
