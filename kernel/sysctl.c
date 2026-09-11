@@ -146,6 +146,7 @@ static int __maybe_unused two_hundred_million = 200000000;
 static unsigned int ns_per_sec = NSEC_PER_SEC;
 static unsigned int __read_mostly sysctl_sched_group_upmigrate_pct = 100;
 static unsigned int __read_mostly sysctl_sched_group_downmigrate_pct = 95;
+static unsigned int sysctl_sched_assist_scene;
 #endif /* CONFIG_PELT_COMPATIBILITY_LAYER */
 /* this is needed for the proc_doulongvec_minmax of vm_dirty_bytes */
 static unsigned long dirty_bytes_min = 2 * PAGE_SIZE;
@@ -439,6 +440,13 @@ static struct ctl_table kern_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
+	},
+	{
+		.procname	= "sched_assist_scene",
+		.data		= &sysctl_sched_assist_scene,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
 	},
 #endif /* CONFIG_PELT_COMPATIBILITY_LAYER */
 #if defined(CONFIG_ENERGY_MODEL) && defined(CONFIG_CPU_FREQ_GOV_SCHEDUTIL)
