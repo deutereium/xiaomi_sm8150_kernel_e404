@@ -60,7 +60,7 @@
 static bool off_charge_flag;
 static bool first_boot_flag;
 static int bypass_charging = 0;
-bool skip_thermal;
+bool skip_thermal = 1;
 EXPORT_SYMBOL(skip_thermal);
 
 bool smblib_rsbux_low(struct smb_charger *chg, int r_thr);

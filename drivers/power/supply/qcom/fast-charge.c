@@ -19,7 +19,7 @@
 #define FAST_CHARGE_FCC_UA		6000000
 
 static struct kobject *fast_charge_kobj;
-static int force_fast_charge;
+static int force_fast_charge = 1;
 extern bool skip_thermal;
 
 static void fast_charge_apply(bool enable)
