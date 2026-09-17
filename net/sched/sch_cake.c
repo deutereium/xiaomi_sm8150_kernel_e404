@@ -64,6 +64,7 @@
 #include <linux/vmalloc.h>
 #include <linux/reciprocal_div.h>
 #include <net/netlink.h>
+#include <linux/netdevice.h>
 #include <linux/if_vlan.h>
 #include <net/pkt_sched.h>
 #include <net/pkt_cls.h>
@@ -582,6 +583,47 @@ static bool cobalt_should_drop(struct cobalt_vars *vars,
 	return drop;
 }
 
+#if IS_ENABLED(CONFIG_NF_CONNTRACK)
+/* 4.14 native replacement for nf_ct_get_tuple_skb(): retrieve the
+ * conntrack tuple for a packet, resolving the pre-NAT tuple when no
+ * conntrack entry is attached to the skb yet.
+ */
+static bool cake_get_tuple_skb(struct nf_conntrack_tuple *dst_tuple,
+			       const struct sk_buff *skb)
+{
+	const struct nf_conntrack_tuple *src_tuple;
+	const struct nf_conntrack_tuple_hash *hash;
+	struct nf_conntrack_tuple srctuple;
+	enum ip_conntrack_info ctinfo;
+	struct nf_conn *ct;
+
+	ct = nf_ct_get(skb, &ctinfo);
+	if (ct) {
+		src_tuple = nf_ct_tuple(ct, CTINFO2DIR(ctinfo));
+		memcpy(dst_tuple, src_tuple, sizeof(*dst_tuple));
+		return true;
+	}
+
+	if (!nf_ct_get_tuplepr(skb, skb_network_offset(skb),
+			       NFPROTO_IPV4, dev_net(skb->dev),
+			       &srctuple))
+		return false;
+
+	hash = nf_conntrack_find_get(dev_net(skb->dev),
+				     &nf_ct_zone_dflt,
+				     &srctuple);
+	if (!hash)
+		return false;
+
+	ct = nf_ct_tuplehash_to_ctrack(hash);
+	src_tuple = nf_ct_tuple(ct, !hash->tuple.dst.dir);
+	memcpy(dst_tuple, src_tuple, sizeof(*dst_tuple));
+	nf_ct_put(ct);
+
+	return true;
+}
+#endif
+
 static bool cake_update_flowkeys(struct flow_keys *keys,
 				 const struct sk_buff *skb)
 {
@@ -593,7 +635,7 @@ static bool cake_update_flowkeys(struct flow_keys *keys,
 	if (skb_protocol(skb, true) != htons(ETH_P_IP))
 		return false;
 
-	if (!nf_ct_get_tuple_skb(&tuple, skb))
+	if (!cake_get_tuple_skb(&tuple, skb))
 		return false;
 
 	ip = rev ? tuple.dst.u3.ip : tuple.src.u3.ip;
@@ -2561,8 +2603,7 @@ static void cake_reconfigure(struct Qdisc *sch)
 				  q->buffer_config_limit));
 }
 
-static int cake_change(struct Qdisc *sch, struct nlattr *opt,
-		       struct netlink_ext_ack *extack)
+static int cake_change(struct Qdisc *sch, struct nlattr *opt)
 {
 	struct cake_sched_data *q = qdisc_priv(sch);
 	struct nlattr *tb[TCA_CAKE_MAX + 1];
@@ -2571,7 +2612,7 @@ static int cake_change(struct Qdisc *sch, struct nlattr *opt,
 	if (!opt)
 		return -EINVAL;
 
-	err = nla_parse_nested(tb, TCA_CAKE_MAX, opt, cake_policy, extack);
+	err = nla_parse_nested(tb, TCA_CAKE_MAX, opt, cake_policy, NULL);
 	if (err < 0)
 		return err;
 
@@ -2581,8 +2622,6 @@ static int cake_change(struct Qdisc *sch, struct nlattr *opt,
 		q->flow_mode |= CAKE_FLOW_NAT_FLAG *
 			!!nla_get_u32(tb[TCA_CAKE_NAT]);
 #else
-		NL_SET_ERR_MSG_ATTR(extack, tb[TCA_CAKE_NAT],
-				    "No conntrack support in kernel");
 		return -EOPNOTSUPP;
 #endif
 	}
@@ -2689,8 +2728,7 @@ static void cake_destroy(struct Qdisc *sch)
 	kvfree(q->tins);
 }
 
-static int cake_init(struct Qdisc *sch, struct nlattr *opt,
-		     struct netlink_ext_ack *extack)
+static int cake_init(struct Qdisc *sch, struct nlattr *opt)
 {
 	struct cake_sched_data *q = qdisc_priv(sch);
 	int i, j, err;
@@ -2712,13 +2750,13 @@ static int cake_init(struct Qdisc *sch, struct nlattr *opt,
 	qdisc_watchdog_init(&q->watchdog, sch);
 
 	if (opt) {
-		err = cake_change(sch, opt, extack);
+		err = cake_change(sch, opt);
 
 		if (err)
 			return err;
 	}
 
-	err = tcf_block_get(&q->block, &q->filter_list, sch, extack);
+	err = tcf_block_get(&q->block, &q->filter_list);
 	if (err)
 		return err;
 
@@ -2951,8 +2989,7 @@ static void cake_unbind(struct Qdisc *q, unsigned long cl)
 {
 }
 
-static struct tcf_block *cake_tcf_block(struct Qdisc *sch, unsigned long cl,
-					struct netlink_ext_ack *extack)
+static struct tcf_block *cake_tcf_block(struct Qdisc *sch, unsigned long cl)
 {
 	struct cake_sched_data *q = qdisc_priv(sch);
 
