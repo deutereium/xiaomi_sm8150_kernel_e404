@@ -10,7 +10,6 @@
 #include <trace/events/sched.h>
 #include <linux/interrupt.h>
 
-
 int sched_rr_timeslice = RR_TIMESLICE;
 int sysctl_sched_rr_timeslice = (MSEC_PER_SEC * RR_TIMESLICE) / HZ;
 
