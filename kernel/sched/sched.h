@@ -1,8 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0 */
-
-#include <linux/prandom.h>
+/*
+ * Scheduler internal types and methods:
+ */
 #include <linux/sched.h>
 
+#include <linux/prandom.h>
 #include <linux/sched/autogroup.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/coredump.h>
@@ -88,8 +90,6 @@
 #else
 # define SCHED_WARN_ON(x)	({ (void)(x), 0; })
 #endif
-
-#include "tune.h"
 
 struct rq;
 struct cpuidle_state;
@@ -1072,13 +1072,13 @@ struct rq {
 	unsigned long misfit_task_load;
 
 	/* For active balancing */
-	int active_balance;
-	int push_cpu;
-	struct task_struct *push_task;
-	struct cpu_stop_work active_balance_work;
-	/* cpu of this runqueue: */
-	int cpu;
-	int online;
+	int			active_balance;
+	int			push_cpu;
+	struct cpu_stop_work	active_balance_work;
+
+	/* CPU of this runqueue: */
+	int			cpu;
+	int			online;
 
 	struct list_head cfs_tasks;
 
@@ -1852,7 +1852,6 @@ static_assert(WF_EXEC == SD_BALANCE_EXEC);
 static_assert(WF_FORK == SD_BALANCE_FORK);
 static_assert(WF_TTWU == SD_BALANCE_WAKE);
 #endif
-
 /*
  * To aid in avoiding the subversion of "niceness" due to uneven distribution
  * of tasks with abnormal "nice" values across CPUs the contribution that
@@ -1940,6 +1939,7 @@ struct sched_class {
 	int (*balance)(struct rq *rq, struct task_struct *prev, struct rq_flags *rf);
         int  (*select_task_rq)(struct task_struct *p, int task_cpu, int flags);
 	struct task_struct * (*pick_task)(struct rq *rq);
+
 	void (*migrate_task_rq)(struct task_struct *p, int new_cpu);
 
 	void (*task_woken)(struct rq *this_rq, struct task_struct *task);
@@ -2368,7 +2368,6 @@ static inline unsigned long __cpu_util(int cpu)
 {
 	struct cfs_rq *cfs_rq;
 	unsigned int util;
-
 
 	cfs_rq = &cpu_rq(cpu)->cfs;
 	util = READ_ONCE(cfs_rq->avg.util_avg);
