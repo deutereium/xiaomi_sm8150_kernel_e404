@@ -1581,13 +1581,10 @@ static void __setscheduler_uclamp(struct task_struct *p,
 static inline void uclamp_fork(struct task_struct *p) { }
 static inline void uclamp_post_fork(struct task_struct *p) { }
 
-long schedtune_task_margin(struct task_struct *task);
-
 #ifdef CONFIG_SMP
 unsigned int uclamp_task(struct task_struct *p)
 {
 	unsigned long util = task_util_est(p);
-
 	return util;
 }
 
@@ -8294,7 +8291,7 @@ static void uclamp_set(struct cgroup_subsys_state *css)
 				"uclamp_latency_sensitive=%d cpu_shares=%d\n",
 				tgt.name, tgt.uclamp_min, tgt.uclamp_max, tgt.uclamp_latency_sensitive, tgt.cpu_shares);
 #else
-                        pr_info("uclamp_assist: setting values for %s: uclamp_min=%s uclamp_max=%s uclamp_latency_sensitive=%d\n"
+                        pr_info("uclamp_assist: setting values for %s: uclamp_min=%s uclamp_max=%s uclamp_latency_sensitive=%d\n",
                                 tgt.name, tgt.uclamp_min, tgt.uclamp_max, tgt.uclamp_latency_sensitive);
 #endif
 			return;

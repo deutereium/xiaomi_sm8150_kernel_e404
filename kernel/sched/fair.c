@@ -4608,7 +4608,7 @@ static inline void update_load_avg(struct cfs_rq *cfs_rq, struct sched_entity *s
 		 * and we are migrating task out of the CPU.
 		 */
 		detach_entity_load_avg(cfs_rq, se);
-		update_tg_load_avg(cfs_rq, 0);
+		update_tg_load_avg(cfs_rq);
 	} else if (decayed) {
 		if (flags & UPDATE_TG)
 			update_tg_load_avg(cfs_rq);
@@ -6493,8 +6493,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int h_nr_idle = task_has_idle_policy(p);
 	int h_nr_runnable = 1;
 	int task_new = !(flags & ENQUEUE_WAKEUP);
-	bool prefer_idle = sched_feat(EAS_PREFER_IDLE) ?
-				(schedtune_prefer_idle(p) > 0) : 0;
 	u64 slice = 0;
 
 	/*
@@ -6516,7 +6514,7 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	 * utilization updates, so do it here explicitly with the IOWAIT flag
 	 * passed.
 	 */
-	if (p->in_iowait && prefer_idle)
+	if (p->in_iowait)
 		cpufreq_update_util(rq, SCHED_CPUFREQ_IOWAIT);
 
 	if (task_new && se->sched_delayed)
@@ -6959,14 +6957,6 @@ static int wake_affine(struct sched_domain *sd, struct task_struct *p,
 	schedstat_inc(p->se.statistics.nr_wakeups_affine);
 	return target;
 }
-
-
-inline long
-schedtune_cpu_margin_with(unsigned long util, int cpu, struct task_struct *p)
-{
-	return 0;
-}
-
 
 static struct sched_group *
 find_idlest_group(struct sched_domain *sd, struct task_struct *p, int this_cpu);
@@ -7736,12 +7726,6 @@ static void find_best_target(struct sched_domain *sd, cpumask_t *cpus,
 					continue;
 
 				/*
-				 * Skip searching for active CPU for tasks have
-				 * prefer_high_cap.
-				 */
-				if (schedtune_prefer_high_cap(p))
-					continue;
-				/*
 				 * Case A.2: Target ACTIVE CPU
 				 * Favor CPUs with max spare capacity.
 				 */
@@ -7893,8 +7877,8 @@ static void find_best_target(struct sched_domain *sd, cpumask_t *cpus,
 
 		/*
 		 * if we are in prefer_idle and have found an idle cpu,
-		 * break from searching more groups based on the stune.boost and
-		 * group cpu capacity. For !prefer_idle && prefer_high_cap case,
+		 * break from searching more groups based on the group
+		 * cpu capacity. For !prefer_idle && prefer_high_cap case,
 		 * don't iterate lower capacity CPUs unless the task can't be
 		 * accommodated in the higher capacity CPUs.
 		 */
@@ -9735,7 +9719,7 @@ static bool __update_blocked_fair(struct rq *rq, bool *done)
 		/* Propagate pending load changes to the parent, if any: */
 		se = cfs_rq->tg->se[cpu];
 		if (se && !skip_blocked_update(se))
-			update_load_avg(cfs_rq_of(se), se, 0);
+			update_load_avg(cfs_rq_of(se), se, UPDATE_TG);
 
 		/*
 		 * There can be a lot of idle CPU cgroups.  Don't let fully
