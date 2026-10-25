@@ -1009,7 +1009,8 @@ static int __prepare_userptr(struct vb2_buffer *vb, const void *pb)
 			plane);
 
 		/* Check if the provided plane buffer is large enough */
-		if (planes[plane].length < vb->planes[plane].min_length) {
+		if (vb->planes[plane].min_length &&
+		    planes[plane].length < vb->planes[plane].min_length) {
 			dprintk(1, "provided buffer size %u is less than setup size %u for plane %d\n",
 						planes[plane].length,
 						vb->planes[plane].min_length,

@@ -275,10 +275,16 @@ static int sde_rotator_queue_setup(struct vb2_queue *q,
 
 	switch (q->type) {
 	case V4L2_BUF_TYPE_VIDEO_OUTPUT:
-		sizes[0] = ctx->format_out.fmt.pix.sizeimage;
-		break;
 	case V4L2_BUF_TYPE_VIDEO_CAPTURE:
-		sizes[0] = ctx->format_cap.fmt.pix.sizeimage;
+		/*
+		 * Rotator buffers are backed by DMA-BUF/ION memory handles passed
+		 * via USERPTR. Do not enforce a strict min_length in videobuf2
+		 * queue setup, as userspace buffer size calculations (e.g. Gralloc
+		 * vs Venus alignment) can vary slightly across different camera
+		 * HAL implementations and modes. Hardware buffer boundaries are
+		 * fully validated during data check and mapping.
+		 */
+		sizes[0] = 0;
 		break;
 	default:
 		return -EINVAL;
@@ -2415,6 +2421,16 @@ static int sde_rotator_qbuf(struct file *file, void *fh,
 		ctx->vbinfo_out[idx].qbuf_ts = ktime_get();
 		ctx->vbinfo_out[idx].dqbuf_ts = NULL;
 	}
+
+	/* Ensure buffer length and bytesused are populated if userspace passes 0 */
+	if (buf->length == 0) {
+		if (buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT)
+			buf->length = ctx->format_out.fmt.pix.sizeimage;
+		else if (buf->type == V4L2_BUF_TYPE_VIDEO_CAPTURE)
+			buf->length = ctx->format_cap.fmt.pix.sizeimage;
+	}
+	if (buf->type == V4L2_BUF_TYPE_VIDEO_OUTPUT && buf->bytesused == 0)
+		buf->bytesused = buf->length;
 
 	ret = v4l2_m2m_qbuf(file, ctx->fh.m2m_ctx, buf);
 	if (ret < 0)
