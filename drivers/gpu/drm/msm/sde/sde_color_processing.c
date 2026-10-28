@@ -176,6 +176,11 @@ static void sde_cp_get_hw_payload(struct sde_cp_node *prop_node,
 	if (prop_node->prop_flags & DRM_MODE_PROP_BLOB) {
 		if (blob) {
 			hw_cfg->len = blob->length;
+			/* legacy memcol blob lacks the trailing flags field */
+			if (hw_cfg->len == sizeof(struct drm_msm_memcol) - sizeof(u64) &&
+			    prop_node->feature >= SDE_CP_CRTC_DSPP_MEMCOL_SKIN &&
+			    prop_node->feature <= SDE_CP_CRTC_DSPP_MEMCOL_PROT)
+				hw_cfg->len = sizeof(struct drm_msm_memcol);
 			hw_cfg->payload = blob->data;
 			*feature_enabled = true;
 		}
@@ -310,7 +315,10 @@ static int sde_cp_enable_crtc_blob_property(struct drm_crtc *crtc,
 		DRM_ERROR("invalid blob id %lld\n", val);
 		return -EINVAL;
 	}
-	if (blob->length != prop_node->prop_blob_sz) {
+	if (blob->length != prop_node->prop_blob_sz &&
+	    !(blob->length == prop_node->prop_blob_sz - sizeof(u64) &&
+	      prop_node->feature >= SDE_CP_CRTC_DSPP_MEMCOL_SKIN &&
+	      prop_node->feature <= SDE_CP_CRTC_DSPP_MEMCOL_PROT)) {
 		DRM_ERROR("invalid blob len %zd exp %d feature %d\n",
 		    blob->length, prop_node->prop_blob_sz, prop_node->feature);
 		drm_property_blob_put(blob);

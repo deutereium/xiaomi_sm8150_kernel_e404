@@ -2469,6 +2469,10 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 		0x0, 0, MAX_SV_BL_SCALE_LEVEL, MAX_SV_BL_SCALE_LEVEL,
 		CONNECTOR_PROP_SV_BL_SCALE);
 
+	msm_property_install_range(&c_conn->property_info, "ad_bl_scale",
+		0x0, 0, MAX_AD_BL_SCALE_LEVEL, MAX_AD_BL_SCALE_LEVEL,
+		CONNECTOR_PROP_AD_BL_SCALE);
+
 	c_conn->bl_scale_dirty = false;
 	c_conn->bl_scale = MAX_BL_SCALE_LEVEL;
 	c_conn->bl_scale_sv = MAX_SV_BL_SCALE_LEVEL;
