@@ -150,9 +150,6 @@ static const struct arm64_ftr_bits ftr_id_aa64pfr0[] = {
 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_NONSTRICT, FTR_LOWER_SAFE, ID_AA64PFR0_CSV2_SHIFT, 4, 0),
 	ARM64_FTR_BITS(FTR_VISIBLE, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64PFR0_DIT_SHIFT, 4, 0),
 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_NONSTRICT, FTR_LOWER_SAFE, ID_AA64PFR0_AMU_SHIFT, 4, 0),
-	ARM64_FTR_BITS(FTR_VISIBLE_IF_IS_ENABLED(CONFIG_ARM64_SVE),
-				   FTR_STRICT, FTR_LOWER_SAFE, ID_AA64PFR0_SVE_SHIFT, 4, 0),
-	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64PFR0_RAS_SHIFT, 4, 0),
 	ARM64_FTR_BITS(FTR_HIDDEN, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64PFR0_GIC_SHIFT, 4, 0),
 	S_ARM64_FTR_BITS(FTR_VISIBLE, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64PFR0_ASIMD_SHIFT, 4, ID_AA64PFR0_ASIMD_NI),
 	S_ARM64_FTR_BITS(FTR_VISIBLE, FTR_STRICT, FTR_LOWER_SAFE, ID_AA64PFR0_FP_SHIFT, 4, ID_AA64PFR0_FP_NI),
@@ -1282,32 +1279,6 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		.min_field_value = 1,
 	},
 #endif
-#ifdef CONFIG_ARM64_SVE
-	{
-		.desc = "Scalable Vector Extension",
-		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
-		.capability = ARM64_SVE,
-		.sys_reg = SYS_ID_AA64PFR0_EL1,
-		.sign = FTR_UNSIGNED,
-		.field_pos = ID_AA64PFR0_SVE_SHIFT,
-		.min_field_value = ID_AA64PFR0_SVE,
-		.matches = has_cpuid_feature,
-		.cpu_enable = sve_kernel_enable,
-	},
-#endif /* CONFIG_ARM64_SVE */
-#ifdef CONFIG_ARM64_RAS_EXTN
-	{
-		.desc = "RAS Extension Support",
-		.capability = ARM64_HAS_RAS_EXTN,
-		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
-		.matches = has_cpuid_feature,
-		.sys_reg = SYS_ID_AA64PFR0_EL1,
-		.sign = FTR_UNSIGNED,
-		.field_pos = ID_AA64PFR0_RAS_SHIFT,
-		.min_field_value = ID_AA64PFR0_RAS_V1,
-		.cpu_enable = cpu_clear_disr,
-	},
-#endif /* CONFIG_ARM64_RAS_EXTN */
 #ifdef CONFIG_ARM64_AMU_EXTN
 	{
 		/*
@@ -1326,29 +1297,6 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		.cpu_enable = cpu_amu_enable,
 	},
 #endif /* CONFIG_ARM64_AMU_EXTN */
-	{
-		.desc = "Data cache clean to the PoU not required for I/D coherence",
-		.capability = ARM64_HAS_CACHE_IDC,
-		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
-		.matches = has_cache_idc,
-	},
-	{
-		.desc = "Instruction cache invalidation not required for I/D coherence",
-		.capability = ARM64_HAS_CACHE_DIC,
-		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
-		.matches = has_cache_dic,
-	},
-	{
-		.desc = "Stage-2 Force Write-Back",
-		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
-		.capability = ARM64_HAS_STAGE2_FWB,
-		.sys_reg = SYS_ID_AA64MMFR2_EL1,
-		.sign = FTR_UNSIGNED,
-		.field_pos = ID_AA64MMFR2_FWB_SHIFT,
-		.min_field_value = 1,
-		.matches = has_cpuid_feature,
-		.cpu_enable = cpu_has_fwb,
-	},
 #ifdef CONFIG_ARM64_HW_AFDBM
 	{
 		/*
