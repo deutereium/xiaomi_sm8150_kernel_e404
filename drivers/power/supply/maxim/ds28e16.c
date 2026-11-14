@@ -772,7 +772,7 @@ unsigned char *Challenge, unsigned char *Secret_Seeds, unsigned char *S_Secret)
 	flag_mi_auth_result = 1;
 	mi_auth_result = DS_TRUE;
 
-	pr_info("DS28E16: Forced bypass triggered. Accessory always authenticated.\n");
+	pr_debug("DS28E16: Forced bypass triggered. Accessory always authenticated.\n");
 	return DS_TRUE;
 }
 
