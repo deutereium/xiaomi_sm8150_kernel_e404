@@ -1,0 +1,96 @@
+name: Build Kernel (vayu 4.14)
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Target device
+        type: choice
+        options: [vayu, vaybpf]
+        default: vayu
+      clang_tag:
+        description: Neutron clang build tag (antman)
+        type: string
+        default: "06092026"
+
+concurrency:
+  group: kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEVICE: ${{ inputs.device || 'vayu' }}
+  CLANG_TAG: ${{ inputs.clang_tag || '06092026' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout kernel (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          path: kernel
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Checkout AnyKernel3 (vayu)
+        uses: actions/checkout@v4
+        with:
+          repository: deutereium/AnyKernel3
+          ref: vayu
+          path: AnyKernel3
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            ccache lz4 zstd file zip patchelf \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            libelf-dev libssl-dev bc bison flex python3
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ccache/.kernel
+          key: ccache-${{ env.DEVICE }}-${{ env.CLANG_TAG }}-${{ hashFiles('kernel/Makefile', 'kernel/arch/arm64/configs/vayu_defconfig') }}
+          restore-keys: |
+            ccache-${{ env.DEVICE }}-
+            ccache-
+
+      - name: Fetch Neutron Clang ${{ env.CLANG_TAG }} (antman)
+        run: |
+          mkdir -p toolchains/neutron-clang
+          cd toolchains/neutron-clang
+          curl -sSLo antman https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman
+          chmod +x antman
+          ./antman -S=${{ env.CLANG_TAG }} --noconfirm
+          ./antman -P=glibc --noconfirm
+
+      - name: Telegram API config (optional secrets)
+        run: |
+          cat > telegram_api <<'EOF'
+          BOT_TOKEN="${{ secrets.TELEGRAM_BOT_TOKEN || '123456:placeholder' }}"
+          GROUP_ID="${{ secrets.TELEGRAM_GROUP_ID || '0' }}"
+          CHANNEL_ID="${{ secrets.TELEGRAM_CHANNEL_ID || '0' }}"
+          PRIVATE_ID="${{ secrets.TELEGRAM_PRIVATE_ID || '0' }}"
+          EOF
+
+      - name: Build kernel via compile.sh
+        run: |
+          cd kernel
+          bash compile.sh neutron ${{ env.DEVICE }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ env.DEVICE }}-${{ github.sha }}
+          path: |
+            kernel/out/RE404-*.zip
+            kernel/out/arch/arm64/boot/Image
+            kernel/out/arch/arm64/boot/dtbo.img
+            kernel/out/arch/arm64/boot/dtb.img
+          if-no-files-found: error
